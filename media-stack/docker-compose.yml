@@ -1,0 +1,165 @@
+# docker stack for nordvpn via gluetun wireguard, prowlarr, radarr, sonarr, plex and qbittorrent
+# https://github.com/dbaugh/media-stack
+version: "3.9"
+name: media-stack
+services:
+  vpn:
+    profiles: ["vpn"]
+    container_name: vpn
+    image: qmcgaw/gluetun:v3.34
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - VPN_SERVICE_PROVIDER=nordvpn
+      - OPENVPN_USER=SKAc9V2XsTk7p7xbpJ2VP324
+      - OPENVPN_PASSWORD=kurv8cge6btR7GHgWsrqh9hX
+      - OPENVPN_PRIVATE_KEY=e9f2abafdaa9e5c3b49a3fe04294647e77622a48d2b28ccd2099c946a434d05a
+      - OPENVPN_TYPE=wireguard
+      # - SERVER_HOSTNAME=us8247.nordvpn.com
+      - SERVER_HOSTNAMES=ca1590.nordvpn.com
+      # - SERVER_COUNTRIES=US
+    networks:
+      - mynetwork
+    ports:
+      # qbittorrent ports
+      - 5080:5080
+      - 6881:6881
+      - 6881:6881/udp
+      # prowlarr ports
+      - 9696:9696
+    restart: "unless-stopped"
+
+  qbittorrent:
+    container_name: qbittorrent
+    image: lscr.io/linuxserver/qbittorrent:4.6.3
+    depends_on:
+      - vpn
+    network_mode: service:vpn
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - WEBUI_PORT=5080
+    volumes:
+      - /data/downloads:/downloads
+      - /data/config/qbittorrent:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+
+  prowlarr:
+    image: linuxserver/prowlarr:1.13.3
+    container_name: prowlarr
+    depends_on:
+      - vpn
+    network_mode: service:vpn
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - /data/config/prowlarr:/config
+    restart: unless-stopped
+
+  radarr:
+    container_name: radarr
+    image: lscr.io/linuxserver/radarr:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    networks:
+      mynetwork:
+        ipv4_address: 172.20.0.11 # It should be available IPv4 address in range of docker network `mynetwork` e.g. 172.20.0.2
+    volumes:
+      - /data/config/radarr:/config
+      - /data/downloads:/downloads
+      - /data/downloads/movies:/movies
+    ports:
+      - 7878:7878
+    restart: "unless-stopped"
+
+  sonarr:
+    container_name: sonarr
+    image: linuxserver/sonarr:4.0.1-develop
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    networks:
+      mynetwork:
+        ipv4_address: 172.20.0.10
+    volumes:
+      - /data/config/sonarr:/config
+      - /data/downloads:/downloads
+      - /data/downloads/tvshows:/tv
+    ports:
+      - 8989:8989
+    restart: unless-stopped
+
+  plex:
+    image: plexinc/pms-docker
+    container_name: plex
+    network_mode: bridge
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - PLEX_CLAIM=claim-1-NLmgWKdkMZFnmmPyzv
+      - ADVERTISE_IP="http://192.168.1.218:32400"
+    ports:
+      - 32400:32400
+      - 32400:32400/udp
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+      - 1900:1900/udp
+      - 8324:8324
+      - 32469:32469
+    volumes:
+      - /data/config/plex:/config
+      - /data/config/plex/transcode:/transcode
+      - /data/downloads/tvshows:/tv
+      - /data/downloads/movies:/movies
+    restart: unless-stopped
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: readarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    networks:
+      mynetwork:
+        ipv4_address: 172.20.0.12 # It should be available IPv4 address in range of docker network `mynetwork` e.g. 172.20.0.2
+    volumes:
+      - /data/config/readarr:/config
+      - /data/downloads/books:/books #optional
+      - /data/downloads:/downloads #optional
+    ports:
+      - 8787:8787
+    restart: unless-stopped
+
+  samba:
+    image: dperson/samba
+    container_name: samba
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    ports:
+      - 139:139
+      - 445:445
+    environment:
+      - TZ=UTC
+      - USERID=1000
+      - GROUPID=1000
+      - SHARE=data;/data
+    volumes:
+      - /data:/data
+
+networks:
+  mynetwork:
+    external: true
